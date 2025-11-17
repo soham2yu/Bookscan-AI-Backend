@@ -14,6 +14,16 @@ CORS(app)
 # Limit upload size (example: 200MB). Adjust to your needs.
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
 
+
+# --------------------------------------------------
+# 🔥 HEALTH CHECK / HOME ROUTE — ADD THIS HERE
+# --------------------------------------------------
+@app.route("/")
+def home():
+    return {"status": "Backend Running Successfully"}
+# --------------------------------------------------
+
+
 def extract_frames(video_path, interval_seconds=2, max_frames=200):
     """
     Extract frames from video_path every interval_seconds.
@@ -39,6 +49,7 @@ def extract_frames(video_path, interval_seconds=2, max_frames=200):
     clip.audio = None
     return frames
 
+
 def images_to_pdf(images, out_path):
     """
     Save list of PIL.Image (RGB) to a multi-page PDF at out_path using fpdf2 for stable behavior.
@@ -46,11 +57,8 @@ def images_to_pdf(images, out_path):
     """
     pdf = FPDF(unit="pt")  # using points for pixel-friendly sizes
     for img in images:
-        # Resize page to image size
         w, h = img.size
-        # fpdf expects sizes in points; use same numbers for pixel ~ point (works for typical cases)
         pdf.add_page(format=(w, h))
-        # save temp jpeg
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpeg")
         tmp_name = tmp.name
         img.save(tmp_name, "JPEG", quality=85)
@@ -58,6 +66,7 @@ def images_to_pdf(images, out_path):
         pdf.image(tmp_name, 0, 0, w, h)
         os.unlink(tmp_name)
     pdf.output(out_path)
+
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -79,7 +88,6 @@ def upload():
     except:
         interval = 2.0
 
-    # create safe temp dir
     out_dir = tempfile.mkdtemp(prefix="bookscan_")
     video_path = os.path.join(out_dir, f"{uuid.uuid4().hex}_{video.filename}")
     video.save(video_path)
@@ -96,12 +104,12 @@ def upload():
     except Exception as e:
         return jsonify({"error": "Conversion failed", "details": str(e)}), 500
     finally:
-        # cleanup: video file removed (PDF may be in use until sent)
         try:
             if os.path.exists(video_path):
                 os.remove(video_path)
         except:
             pass
+
 
 if __name__ == "__main__":
     # dev server
