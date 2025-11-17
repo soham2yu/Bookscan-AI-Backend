@@ -9,53 +9,63 @@ from PIL import Image
 from fpdf import FPDF
 
 app = Flask(__name__)
-# Enable CORS for all routes
-CORS(app)
-# Limit upload size (example: 200MB). Adjust to your needs.
+
+# --------------------------------------------------
+# ✅ CORS FIX FOR VERCEL → RENDER
+# --------------------------------------------------
+CORS(app, resources={
+    r"/*": {
+        "origins": [
+            "https://bookscan-ai-frontend.vercel.app",  # your frontend
+            "http://localhost:3000"                    # local dev
+        ],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"]
+    }
+})
+
+# Limit upload size to 200MB
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
 
 
 # --------------------------------------------------
-# 🔥 HEALTH CHECK / HOME ROUTE — ADD THIS HERE
+# 🔥 HEALTH CHECK / HOME ROUTE
 # --------------------------------------------------
 @app.route("/")
 def home():
     return {"status": "Backend Running Successfully"}
+
+
 # --------------------------------------------------
-
-
+# Extract frames from video
+# --------------------------------------------------
 def extract_frames(video_path, interval_seconds=2, max_frames=200):
-    """
-    Extract frames from video_path every interval_seconds.
-    Returns list of PIL.Image objects.
-    Caps at max_frames to avoid memory blowups.
-    """
     clip = VideoFileClip(video_path)
     duration = clip.duration
     frames = []
     t = 0.0
     count = 0
+
     while t < duration and count < max_frames:
         try:
-            frame = clip.get_frame(t)  # numpy array (H,W,3) uint8
+            frame = clip.get_frame(t)
             img = Image.fromarray(frame)
             frames.append(img.convert("RGB"))
             count += 1
             t += interval_seconds
-        except Exception as e:
-            # skip problematic timestamps
+        except:
             t += interval_seconds
+
     clip.reader.close()
     clip.audio = None
     return frames
 
 
+# --------------------------------------------------
+# Convert images → PDF
+# --------------------------------------------------
 def images_to_pdf(images, out_path):
-    """
-    Save list of PIL.Image (RGB) to a multi-page PDF at out_path using fpdf2 for stable behavior.
-    We'll save each image temporarily as JPEG, then add to PDF pages.
-    """
-    pdf = FPDF(unit="pt")  # using points for pixel-friendly sizes
+    pdf = FPDF(unit="pt")
     for img in images:
         w, h = img.size
         pdf.add_page(format=(w, h))
@@ -68,21 +78,20 @@ def images_to_pdf(images, out_path):
     pdf.output(out_path)
 
 
+# --------------------------------------------------
+# Upload Route
+# --------------------------------------------------
 @app.route("/upload", methods=["POST"])
 def upload():
-    """
-    Receives multipart form with file field 'video' and optional 'interval' seconds.
-    Returns generated PDF file.
-    """
-    if 'video' not in request.files:
+    if "video" not in request.files:
         return jsonify({"error": "Missing 'video' file"}), 400
 
-    video = request.files['video']
-    if video.filename == '':
+    video = request.files["video"]
+    if video.filename == "":
         return jsonify({"error": "Empty filename"}), 400
 
     try:
-        interval = float(request.form.get('interval', 2.0))
+        interval = float(request.form.get("interval", 2.0))
         if interval <= 0:
             interval = 2.0
     except:
@@ -95,14 +104,16 @@ def upload():
     try:
         frames = extract_frames(video_path, interval_seconds=interval, max_frames=400)
         if len(frames) == 0:
-            return jsonify({"error": "No frames extracted. Try smaller interval or different video."}), 400
+            return jsonify({"error": "No frames extracted"}), 400
 
         pdf_path = os.path.join(out_dir, f"{uuid.uuid4().hex}.pdf")
         images_to_pdf(frames, pdf_path)
 
         return send_file(pdf_path, as_attachment=True, download_name="bookscan_output.pdf")
+
     except Exception as e:
         return jsonify({"error": "Conversion failed", "details": str(e)}), 500
+
     finally:
         try:
             if os.path.exists(video_path):
@@ -111,6 +122,8 @@ def upload():
             pass
 
 
+# --------------------------------------------------
+# Run locally
+# --------------------------------------------------
 if __name__ == "__main__":
-    # dev server
     app.run(host="0.0.0.0", port=5000, debug=True)
